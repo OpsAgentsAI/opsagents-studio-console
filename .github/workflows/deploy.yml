@@ -56,6 +56,9 @@ jobs:
           projectId: opsagent-prod
           target: console
           channelId: live
+          # firebase-tools 14+ regressed on external_account (WIF) JSON parsing
+          # in google-auth-library — see memory feedback_wif_repository_owner_not_mapped.
+          firebaseToolsVersion: 13.29.1
 
   build-deploy-proxy:
     name: Build + deploy Cloud Run proxy
