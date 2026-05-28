@@ -14,7 +14,7 @@ env:
   REGION: me-west1
   PROXY_SERVICE: opsagents-studio-console-proxy
   AR_REPO: opsagents-studio-console
-  WIF_PROVIDER: projects/523955774086/locations/global/workloadIdentityPools/github/providers/github-provider
+  WIF_PROVIDER: projects/523955774086/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
   DEPLOY_SA: gha-deployer@opsagent-prod.iam.gserviceaccount.com
 
 jobs:
