@@ -48,6 +48,62 @@ GitHub Actions on push to `main` (see `.github/workflows/deploy.yml`):
 1. Build SPA → deploy to Firebase Hosting target `console`
 2. Build proxy Docker image → push to Artifact Registry → deploy to Cloud Run
 
+## Cloud prereqs (one-time, before first GHA deploy works)
+
+Run from a workstation with `gcloud` authed to `opsagent-prod`:
+
+```bash
+PROJECT=opsagent-prod
+REGION=me-west1
+PROXY_SA=studio-console-proxy@${PROJECT}.iam.gserviceaccount.com
+
+# 1. Firebase Hosting site
+firebase hosting:sites:create opsagents-studio-console --project=$PROJECT
+
+# 2. Artifact Registry repo for the proxy image
+gcloud artifacts repositories create opsagents-studio-console \
+  --location=$REGION --project=$PROJECT --repository-format=docker \
+  --description="opsagents-studio-console proxy images"
+
+# 3. Proxy service account
+gcloud iam service-accounts create studio-console-proxy --project=$PROJECT \
+  --display-name="opsagents-studio-console proxy runtime"
+
+# 4. Grant Firestore + secret access to the proxy SA
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member="serviceAccount:${PROXY_SA}" --role=roles/datastore.user
+gcloud secrets add-iam-policy-binding OPSAGENT_AI_RUNTIME_API_KEY \
+  --project=$PROJECT --member="serviceAccount:${PROXY_SA}" \
+  --role=roles/secretmanager.secretAccessor
+
+# 5. Let the gha-deployer deploy this Cloud Run service + impersonate the proxy SA
+gcloud iam service-accounts add-iam-policy-binding ${PROXY_SA} \
+  --project=$PROJECT \
+  --member="serviceAccount:gha-deployer@${PROJECT}.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountUser
+
+# 6. WIF binding for this repo (replace WIF_POOL/PROVIDER with the existing org pool)
+# Already exists if you've deployed any OpsAgentsAI repo before. Verify with:
+gcloud iam workload-identity-pools providers describe github-provider \
+  --workload-identity-pool=github --location=global --project=$PROJECT
+
+# Add this repo to the gha-deployer trust:
+gcloud iam service-accounts add-iam-policy-binding \
+  gha-deployer@${PROJECT}.iam.gserviceaccount.com --project=$PROJECT \
+  --member="principalSet://iam.googleapis.com/projects/523955774086/locations/global/workloadIdentityPools/github/attribute.repository/OpsAgentsAI/opsagents-studio-console" \
+  --role=roles/iam.workloadIdentityUser
+
+# 7. Enable Firebase Auth Google provider (Firebase Console — no clean CLI path)
+#    Firebase Console → opsagent-prod → Authentication → Sign-in method → Google → Enable
+#    Authorize the Hosting domain: opsagents-studio-console.web.app
+#
+# 8. GitHub repo secrets (Settings → Secrets and variables → Actions)
+#    - VITE_FIREBASE_API_KEY            (from Firebase console Project settings)
+#    - VITE_FIREBASE_AUTH_DOMAIN        (opsagent-prod.firebaseapp.com)
+#    - VITE_FIREBASE_APP_ID             (Firebase Web app → register app)
+#    - FIREBASE_SERVICE_ACCOUNT         (firebase-hosting-deploy SA JSON, base64)
+```
+
 ## Seeding the allowlist
 
 ```

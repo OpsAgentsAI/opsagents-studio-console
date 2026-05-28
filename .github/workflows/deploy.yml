@@ -76,7 +76,7 @@ jobs:
             --project=${{ env.GCP_PROJECT }} \
             --allow-unauthenticated \
             --service-account=studio-console-proxy@opsagent-prod.iam.gserviceaccount.com \
-            --update-secrets=BRIDGE_API_KEY=opsagents-studio-console-bridge-key:latest \
+            --update-secrets=BRIDGE_API_KEY=OPSAGENT_AI_RUNTIME_API_KEY:latest \
             --update-env-vars=BRIDGE_URL=https://opsagent-core-523955774086.me-west1.run.app/api/generate-image,ALLOWED_ORIGINS=https://opsagents-studio-console.web.app\,https://console.studio.opsagents.agency \
             --memory=512Mi \
             --cpu=1 \
