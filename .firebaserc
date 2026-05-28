@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "opsagent-prod"
+  },
+  "targets": {
+    "opsagent-prod": {
+      "hosting": {
+        "console": ["opsagents-studio-console"]
+      }
+    }
+  }
+}

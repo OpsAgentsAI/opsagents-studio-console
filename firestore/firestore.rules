@@ -1,0 +1,45 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userEmail() {
+      return request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(userEmail()))
+        && get(/databases/$(database)/documents/users/$(userEmail())).data.role == 'admin';
+    }
+
+    function isAllowlisted() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(userEmail()));
+    }
+
+    // Allowlist registry — admins manage; allowlisted users can read their own doc.
+    match /users/{email} {
+      allow read: if isAdmin() || (isSignedIn() && email == userEmail());
+      allow write: if isAdmin();
+    }
+
+    // Generation history — owner-write, admin-read-all.
+    match /generations/{uid}/items/{generationId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      // The proxy writes (under user identity via Firebase ID token verification),
+      // never the client. Client cannot create — only the proxy mints these via Admin SDK.
+      allow write: if false;
+    }
+
+    // Per-user aggregate counters — readable by owner + admin, writable only by proxy (Admin SDK bypasses rules).
+    match /usage/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;
+    }
+  }
+}

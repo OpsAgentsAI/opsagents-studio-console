@@ -1,0 +1,13 @@
+{
+  "name": "opsagents-studio-console",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["app", "proxy", "scripts"],
+  "scripts": {
+    "dev:app": "npm --workspace app run dev",
+    "dev:proxy": "npm --workspace proxy run dev",
+    "build:app": "npm --workspace app run build",
+    "build:proxy": "npm --workspace proxy run build",
+    "seed:allowlist": "npm --workspace scripts run seed"
+  }
+}

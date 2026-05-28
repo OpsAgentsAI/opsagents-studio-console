@@ -1,0 +1,85 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT: opsagent-prod
+  REGION: me-west1
+  PROXY_SERVICE: opsagents-studio-console-proxy
+  AR_REPO: opsagents-studio-console
+  WIF_PROVIDER: projects/523955774086/locations/global/workloadIdentityPools/github/providers/github-provider
+  DEPLOY_SA: gha-deployer@opsagent-prod.iam.gserviceaccount.com
+
+jobs:
+  build-deploy-app:
+    name: Build + deploy SPA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SA }}
+      - name: Install
+        working-directory: app
+        run: npm install
+      - name: Build
+        working-directory: app
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: opsagent-prod
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_PROXY_URL: https://opsagents-studio-console-proxy-523955774086.me-west1.run.app
+        run: npm run build
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: opsagent-prod
+          target: console
+          channelId: live
+
+  build-deploy-proxy:
+    name: Build + deploy Cloud Run proxy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      - name: Build + push image
+        working-directory: proxy
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/proxy:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.PROXY_SERVICE }} \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ env.GCP_PROJECT }} \
+            --allow-unauthenticated \
+            --service-account=studio-console-proxy@opsagent-prod.iam.gserviceaccount.com \
+            --update-secrets=BRIDGE_API_KEY=opsagents-studio-console-bridge-key:latest \
+            --update-env-vars=BRIDGE_URL=https://opsagent-core-523955774086.me-west1.run.app/api/generate-image,ALLOWED_ORIGINS=https://opsagents-studio-console.web.app\,https://console.studio.opsagents.agency \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --timeout=60s

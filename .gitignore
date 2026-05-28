@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+.firebase
+.runtimeconfig.json
+service-account*.json
+sa-*.json
+*.tsbuildinfo
