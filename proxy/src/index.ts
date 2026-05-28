@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, type Transaction, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT ?? 'opsagent-prod';
@@ -91,7 +91,7 @@ app.post('/generate', async (c) => {
   const thumbBase64 = imageBase64.length > 200_000 ? imageBase64.slice(0, 200_000) : imageBase64;
   const genDoc = db.collection('generations').doc(caller.uid).collection('items').doc(requestId);
   const usageDoc = db.collection('usage').doc(caller.uid);
-  await db.runTransaction(async (tx) => {
+  await db.runTransaction(async (tx: Transaction) => {
     tx.set(genDoc, {
       prompt,
       mimeType,
@@ -120,7 +120,7 @@ app.get('/history', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 50);
   const snap = await db.collection('generations').doc(caller.uid).collection('items')
     .orderBy('createdAt', 'desc').limit(limit).get();
-  const items = snap.docs.map((d) => {
+  const items = snap.docs.map((d: QueryDocumentSnapshot) => {
     const x = d.data();
     return { id: d.id, prompt: x.prompt, thumbBase64: x.thumbBase64, mimeType: x.mimeType, cost: x.cost, createdAt: x.createdAt };
   });
@@ -136,15 +136,15 @@ async function requireAdmin(c: { req: { header(name: string): string | undefined
 app.get('/admin/users', async (c) => {
   try { await requireAdmin(c); } catch (e) { if (e instanceof Response) return e; throw e; }
   const snap = await db.collection('users').get();
-  const users = snap.docs.map((d) => ({ email: d.id, role: d.data().role, addedAt: d.data().addedAt ?? 0 }));
-  users.sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0));
+  const users = snap.docs.map((d: QueryDocumentSnapshot) => ({ email: d.id, role: d.data().role as 'admin' | 'user', addedAt: (d.data().addedAt as number | undefined) ?? 0 }));
+  users.sort((a: { addedAt: number }, b: { addedAt: number }) => b.addedAt - a.addedAt);
   return c.json({ users });
 });
 
 app.get('/admin/usage', async (c) => {
   try { await requireAdmin(c); } catch (e) { if (e instanceof Response) return e; throw e; }
   const snap = await db.collection('usage').get();
-  const usage = snap.docs.map((d) => ({ email: d.data().email ?? d.id, totalGenerations: d.data().totalGenerations ?? 0, totalCost: d.data().totalCost ?? 0 }));
+  const usage = snap.docs.map((d: QueryDocumentSnapshot) => ({ email: d.data().email ?? d.id, totalGenerations: d.data().totalGenerations ?? 0, totalCost: d.data().totalCost ?? 0 }));
   return c.json({ usage });
 });
 

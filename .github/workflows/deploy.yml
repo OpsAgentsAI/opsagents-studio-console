@@ -31,11 +31,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - uses: google-github-actions/auth@v2
+      - id: auth
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOY_SA }}
-      - uses: google-github-actions/setup-gcloud@v2
       - name: Install
         working-directory: app
         run: npm install
@@ -48,12 +48,14 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ env.VITE_FIREBASE_APP_ID }}
           VITE_PROXY_URL: ${{ env.VITE_PROXY_URL }}
         run: npm run build
-      - name: Deploy Hosting + Firestore rules + indexes
-        run: |
-          npx -y firebase-tools@latest deploy \
-            --only hosting:console,firestore:rules,firestore:indexes \
-            --project=${{ env.GCP_PROJECT }} \
-            --non-interactive
+      - name: Deploy Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ steps.auth.outputs.credentials_file_path }}
+          projectId: opsagent-prod
+          target: console
+          channelId: live
 
   build-deploy-proxy:
     name: Build + deploy Cloud Run proxy
