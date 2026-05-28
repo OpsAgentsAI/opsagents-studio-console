@@ -48,17 +48,64 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ env.VITE_FIREBASE_APP_ID }}
           VITE_PROXY_URL: ${{ env.VITE_PROXY_URL }}
         run: npm run build
-      - name: Deploy Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ steps.auth.outputs.credentials_file_path }}
-          projectId: opsagent-prod
-          target: console
-          channelId: live
-          # firebase-tools 14+ regressed on external_account (WIF) JSON parsing
-          # in google-auth-library — see memory feedback_wif_repository_owner_not_mapped.
-          firebaseToolsVersion: 13.29.1
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy Firebase Hosting via REST API
+        # firebase-tools' bundled google-auth-library doesn't parse external_account
+        # (WIF) credentials JSON correctly — passes the file path through where
+        # the content is expected, then JSON.parse barfs on "/home/runner/...".
+        # Bypassed by talking to the Firebase Hosting REST API directly with an
+        # access token from gcloud (which DOES handle external_account).
+        env:
+          SITE: opsagents-studio-console
+        run: |
+          set -euo pipefail
+          TOKEN=$(gcloud auth print-access-token)
+          API=https://firebasehosting.googleapis.com/v1beta1
+
+          # 1. Create version
+          VERSION=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            "$API/sites/$SITE/versions" -d '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["name"])')
+          echo "Created version: $VERSION"
+
+          # 2. Hash + gzip every file in app/dist, build the file map
+          cd app/dist
+          declare -A HASH_TO_FILE
+          FILE_MAP='{}'
+          while IFS= read -r -d '' f; do
+            rel="/${f#./}"
+            gz_path="/tmp/upload$rel.gz"
+            mkdir -p "$(dirname "$gz_path")"
+            gzip -9 -n -c "$f" > "$gz_path"
+            sha=$(sha256sum "$gz_path" | cut -d' ' -f1)
+            HASH_TO_FILE[$sha]="$gz_path"
+            FILE_MAP=$(python3 -c "import json,sys; m=json.loads(sys.argv[1]); m[sys.argv[2]]=sys.argv[3]; print(json.dumps(m))" "$FILE_MAP" "$rel" "$sha")
+          done < <(find . -type f -print0)
+          echo "File map: $FILE_MAP"
+
+          # 3. populateFiles → tells us which hashes to actually upload + the uploadUrl
+          POPULATE=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            "$API/$VERSION:populateFiles" -d "{\"files\": $FILE_MAP}")
+          echo "Populate response: $POPULATE"
+          UPLOAD_URL=$(echo "$POPULATE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("uploadUrl",""))')
+          UPLOADS=$(echo "$POPULATE" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("\n".join(d.get("uploadRequiredHashes",[])))')
+
+          # 4. Upload required gzipped files keyed by hash
+          for sha in $UPLOADS; do
+            f=${HASH_TO_FILE[$sha]}
+            echo "Uploading $sha ($f)..."
+            curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/octet-stream' \
+              --data-binary "@$f" "$UPLOAD_URL/$sha" -o /dev/null -w "  -> HTTP %{http_code}\n"
+          done
+
+          # 5. Finalize version
+          curl -sS -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            "$API/$VERSION?updateMask=status" -d '{"status":"FINALIZED"}' | head -c 500; echo
+
+          # 6. Release
+          RELEASE=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
+            "$API/sites/$SITE/releases?versionName=$VERSION")
+          echo "Release: $RELEASE"
+          echo "✅ Live at https://$SITE.web.app"
 
   build-deploy-proxy:
     name: Build + deploy Cloud Run proxy
@@ -88,7 +135,7 @@ jobs:
             --allow-unauthenticated \
             --service-account=studio-console-proxy@opsagent-prod.iam.gserviceaccount.com \
             --update-secrets=BRIDGE_API_KEY=OPSAGENT_AI_RUNTIME_API_KEY:latest \
-            --update-env-vars=BRIDGE_URL=https://opsagent-core-523955774086.me-west1.run.app/api/generate-image,ALLOWED_ORIGINS=https://opsagents-studio-console.web.app\,https://console.studio.opsagents.agency \
+            --update-env-vars="^|^BRIDGE_URL=https://opsagent-core-523955774086.me-west1.run.app/api/generate-image|ALLOWED_ORIGINS=https://opsagents-studio-console.web.app,https://console.studio.opsagents.agency" \
             --memory=512Mi \
             --cpu=1 \
             --min-instances=0 \
