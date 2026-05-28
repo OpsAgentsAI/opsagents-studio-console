@@ -1,45 +1,128 @@
 rules_version = '2';
 
+// Canonical opsagent-prod Firestore rules — SHARED across every app on the
+// project's (default) database. WHICHEVER APP DEPLOYS LAST WINS, replacing
+// the prior ruleset entirely. This file MUST contain the union of every
+// app's collection rules, or Studio Console can stomp lead-pipeline + trainer.
+//
+// Apps + their collections:
+//   lead-pipeline               → leads/{*}, leads/{*}/shares/{*}, briefings/{*}, allowlist/{*}
+//   trainer (claude-architect)  → questions/{*}, users/{uid}, attempts/{*}
+//   opsagents-studio-console    → studioConsoleAllowlist/{email}, studioConsoleGenerations/{uid}/items/{id}, studioConsoleUsage/{uid}
+//
+// History:
+//   - 2026-05-28: added opsagents-studio-console rules. Postmortem in the
+//     [studio-console] Trello card FtPfGk45 — first deploy stomped the shared
+//     ruleset for ~3 minutes (rolled back via API). Phase 2 = migrate this app
+//     to its own named Firestore database to remove the shared-rules trap.
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
+    // ── lead-pipeline helpers ──────────────────────────────────────────
+    function isAllowlistedUser() {
+      return request.auth != null && request.auth.token.allowlisted == true;
+    }
+    function isLpAdmin() {
+      return request.auth != null && request.auth.token.role == 'admin';
+    }
+    function isOwner(data) {
+      return request.auth != null && request.auth.token.email == data.ownerEmail;
+    }
+    function isShared(data) {
+      return request.auth != null
+        && data.sharedWith is list
+        && data.sharedWith.hasAny([request.auth.token.email]);
     }
 
-    function userEmail() {
+    // ── lead-pipeline: leads ───────────────────────────────────────────
+    match /leads/{leadId} {
+      allow read:   if isAllowlistedUser()
+                    && (isOwner(resource.data) || isShared(resource.data) || isLpAdmin());
+      allow create: if isAllowlistedUser()
+                    && request.resource.data.ownerEmail == request.auth.token.email
+                    && request.resource.data.keys().hasAll(['name','stage','heat','date','ownerEmail']);
+      allow update: if isAllowlistedUser()
+                    && (isOwner(resource.data) || isShared(resource.data))
+                    && request.resource.data.ownerEmail == resource.data.ownerEmail
+                    && (
+                         isOwner(resource.data)
+                         || request.resource.data.sharedWith == resource.data.sharedWith
+                       );
+      allow delete: if isAllowlistedUser() && isOwner(resource.data);
+    }
+
+    // ── lead-pipeline: lead shares (admin-SDK only) ────────────────────
+    match /leads/{leadId}/shares/{shareId} {
+      allow read, write: if false;
+    }
+
+    // ── lead-pipeline: briefings ───────────────────────────────────────
+    match /briefings/{briefingId} {
+      allow read:   if isAllowlistedUser() && isOwner(resource.data);
+      allow create: if isAllowlistedUser()
+                    && request.resource.data.ownerEmail == request.auth.token.email;
+      allow update, delete: if isAllowlistedUser() && isOwner(resource.data);
+    }
+
+    // ── lead-pipeline: allowlist ───────────────────────────────────────
+    match /allowlist/{email} {
+      allow read:  if request.auth != null && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    // ── trainer: question bank (R2) ────────────────────────────────────
+    match /questions/{qId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── trainer: user profile docs (card 1jpqYSeg) ─────────────────────
+    match /users/{uid} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == uid
+                         && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // ── trainer: attempts (Admin SDK only) ─────────────────────────────
+    match /attempts/{path=**} {
+      allow read, write: if false;
+    }
+
+    // ── studio-console helpers ─────────────────────────────────────────
+    function studioConsoleSignedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+    function studioConsoleEmail() {
       return request.auth.token.email;
     }
-
-    function isAdmin() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(userEmail()))
-        && get(/databases/$(database)/documents/users/$(userEmail())).data.role == 'admin';
+    function studioConsoleAdmin() {
+      return studioConsoleSignedIn()
+        && exists(/databases/$(database)/documents/studioConsoleAllowlist/$(studioConsoleEmail()))
+        && get(/databases/$(database)/documents/studioConsoleAllowlist/$(studioConsoleEmail())).data.role == 'admin';
     }
 
-    function isAllowlisted() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(userEmail()));
+    // ── studio-console: allowlist registry ─────────────────────────────
+    match /studioConsoleAllowlist/{email} {
+      allow read:  if studioConsoleAdmin() || (studioConsoleSignedIn() && email == studioConsoleEmail());
+      allow write: if false;  // mutations flow through proxy /admin/users (Admin SDK)
     }
 
-    // Allowlist registry — admins manage; allowlisted users can read their own doc.
-    match /users/{email} {
-      allow read: if isAdmin() || (isSignedIn() && email == userEmail());
-      allow write: if isAdmin();
+    // ── studio-console: generation history ─────────────────────────────
+    match /studioConsoleGenerations/{uid}/items/{generationId} {
+      allow read:  if studioConsoleAdmin() || (studioConsoleSignedIn() && request.auth.uid == uid);
+      allow write: if false;  // proxy-only via Admin SDK
     }
 
-    // Generation history — owner-write, admin-read-all.
-    match /generations/{uid}/items/{generationId} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      // The proxy writes (under user identity via Firebase ID token verification),
-      // never the client. Client cannot create — only the proxy mints these via Admin SDK.
-      allow write: if false;
+    // ── studio-console: per-user usage counters ────────────────────────
+    match /studioConsoleUsage/{uid} {
+      allow read:  if studioConsoleAdmin() || (studioConsoleSignedIn() && request.auth.uid == uid);
+      allow write: if false;  // proxy-only via Admin SDK
     }
 
-    // Per-user aggregate counters — readable by owner + admin, writable only by proxy (Admin SDK bypasses rules).
-    match /usage/{uid} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow write: if false;
+    // ── catch-all deny ─────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

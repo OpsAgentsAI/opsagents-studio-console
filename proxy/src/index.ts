@@ -35,7 +35,7 @@ async function verifyCaller(authHeader: string | undefined): Promise<Caller> {
   catch { throw new Response('Invalid ID token', { status: 401 }); }
   const email = decoded.email?.toLowerCase();
   if (!email) throw new Response('Token missing email', { status: 401 });
-  const snap = await db.collection('users').doc(email).get();
+  const snap = await db.collection('studioConsoleAllowlist').doc(email).get();
   if (!snap.exists) throw new Response('Not on allowlist', { status: 403 });
   const role = (snap.data() as { role?: Role }).role;
   if (role !== 'admin' && role !== 'user') throw new Response('Allowlist entry missing role', { status: 403 });
@@ -89,8 +89,8 @@ app.post('/generate', async (c) => {
   }
 
   const thumbBase64 = imageBase64.length > 200_000 ? imageBase64.slice(0, 200_000) : imageBase64;
-  const genDoc = db.collection('generations').doc(caller.uid).collection('items').doc(requestId);
-  const usageDoc = db.collection('usage').doc(caller.uid);
+  const genDoc = db.collection('studioConsoleGenerations').doc(caller.uid).collection('items').doc(requestId);
+  const usageDoc = db.collection('studioConsoleUsage').doc(caller.uid);
   await db.runTransaction(async (tx: Transaction) => {
     tx.set(genDoc, {
       prompt,
@@ -118,7 +118,7 @@ app.get('/history', async (c) => {
   catch (e) { if (e instanceof Response) return e; throw e; }
 
   const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 50);
-  const snap = await db.collection('generations').doc(caller.uid).collection('items')
+  const snap = await db.collection('studioConsoleGenerations').doc(caller.uid).collection('items')
     .orderBy('createdAt', 'desc').limit(limit).get();
   const items = snap.docs.map((d: QueryDocumentSnapshot) => {
     const x = d.data();
@@ -135,7 +135,7 @@ async function requireAdmin(c: { req: { header(name: string): string | undefined
 
 app.get('/admin/users', async (c) => {
   try { await requireAdmin(c); } catch (e) { if (e instanceof Response) return e; throw e; }
-  const snap = await db.collection('users').get();
+  const snap = await db.collection('studioConsoleAllowlist').get();
   const users = snap.docs.map((d: QueryDocumentSnapshot) => ({ email: d.id, role: d.data().role as 'admin' | 'user', addedAt: (d.data().addedAt as number | undefined) ?? 0 }));
   users.sort((a: { addedAt: number }, b: { addedAt: number }) => b.addedAt - a.addedAt);
   return c.json({ users });
@@ -143,7 +143,7 @@ app.get('/admin/users', async (c) => {
 
 app.get('/admin/usage', async (c) => {
   try { await requireAdmin(c); } catch (e) { if (e instanceof Response) return e; throw e; }
-  const snap = await db.collection('usage').get();
+  const snap = await db.collection('studioConsoleUsage').get();
   const usage = snap.docs.map((d: QueryDocumentSnapshot) => ({ email: d.data().email ?? d.id, totalGenerations: d.data().totalGenerations ?? 0, totalCost: d.data().totalCost ?? 0 }));
   return c.json({ usage });
 });
@@ -155,7 +155,7 @@ app.post('/admin/users', async (c) => {
   if (!body?.email || !body.email.includes('@')) return c.json({ error: 'valid email required' }, 400);
   const role = body.role === 'admin' ? 'admin' : 'user';
   const email = body.email.trim().toLowerCase();
-  await db.collection('users').doc(email).set({
+  await db.collection('studioConsoleAllowlist').doc(email).set({
     role,
     addedAt: Date.now(),
     addedBy: admin.email,
@@ -168,7 +168,7 @@ app.delete('/admin/users/:email', async (c) => {
   try { admin = await requireAdmin(c); } catch (e) { if (e instanceof Response) return e; throw e; }
   const email = decodeURIComponent(c.req.param('email')).toLowerCase();
   if (email === admin.email) return c.json({ error: 'cannot remove yourself' }, 400);
-  await db.collection('users').doc(email).delete();
+  await db.collection('studioConsoleAllowlist').doc(email).delete();
   return c.json({ ok: true });
 });
 

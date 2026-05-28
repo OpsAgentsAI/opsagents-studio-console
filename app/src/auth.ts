@@ -19,7 +19,7 @@ export function signOutNow(): Promise<void> {
 
 export async function resolveRole(user: User): Promise<Role | null> {
   if (!user.email) return null;
-  const snap = await getDoc(doc(db, 'users', user.email.toLowerCase()));
+  const snap = await getDoc(doc(db, 'studioConsoleAllowlist', user.email.toLowerCase()));
   if (!snap.exists()) return null;
   const data = snap.data() as { role?: Role };
   return data.role === 'admin' ? 'admin' : data.role === 'user' ? 'user' : null;

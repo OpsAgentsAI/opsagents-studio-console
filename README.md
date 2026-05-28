@@ -14,7 +14,7 @@ Standalone image-generation app for the OpsAgents Studio brand. Allowlisted Goog
 |---|---|---|
 | SPA | Vite + vanilla TS + Firebase Web SDK | Firebase Hosting on `opsagent-prod` |
 | Auth | Firebase Auth, Google provider only | Firebase Auth on `opsagent-prod` |
-| Allowlist | Firestore `users/{email}` doc with `role: 'admin' \| 'user'` | Firestore on `opsagent-prod` |
+| Allowlist | Firestore `studioConsoleAllowlist/{email}` doc with `role: 'admin' \| 'user'` | Firestore on `opsagent-prod` |
 | Server proxy | Hono on Node 22 | Cloud Run `opsagents-studio-console-proxy` in `me-west1` |
 | Image bridge | Existing `opsagent-core` `/api/generate-image` | Already deployed |
 
@@ -56,6 +56,13 @@ Run from a workstation with `gcloud` authed to `opsagent-prod`:
 PROJECT=opsagent-prod
 REGION=me-west1
 PROXY_SA=studio-console-proxy@${PROJECT}.iam.gserviceaccount.com
+
+# ⚠️ Firestore rules are SHARED across opsagent-prod (lead-pipeline + trainer + this app).
+# DO NOT `firebase deploy --only firestore:rules` — it stomps the canonical ruleset.
+# Update `firestore/firestore.rules` to be the SUPERSET (see file header for current apps)
+# and apply via API only after diffing against the live ruleset. Phase 2 = move this
+# app to a named Firestore database (`gcloud firestore databases create --database=studio-console`)
+# to remove the shared-rules trap entirely.
 
 # 1. Firebase Hosting site
 firebase hosting:sites:create opsagents-studio-console --project=$PROJECT

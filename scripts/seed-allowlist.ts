@@ -21,7 +21,7 @@ const seed: SeedEntry[] = [
 async function main() {
   console.log(`[seed] project=${PROJECT_ID}, seeding ${seed.length} users`);
   for (const { email, role } of seed) {
-    const ref = db.collection('users').doc(email);
+    const ref = db.collection('studioConsoleAllowlist').doc(email);
     const snap = await ref.get();
     if (snap.exists) {
       const existing = snap.data() as { role?: string };
