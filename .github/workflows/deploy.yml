@@ -21,7 +21,10 @@ env:
   VITE_FIREBASE_AUTH_DOMAIN: opsagent-prod.firebaseapp.com
   VITE_FIREBASE_PROJECT_ID: opsagent-prod
   VITE_FIREBASE_APP_ID: 1:523955774086:web:08128dd54f8328d427e707
-  VITE_PROXY_URL: https://opsagents-studio-console-proxy-523955774086.me-west1.run.app
+  # The project-number form (proxy-523955774086.me-west1.run.app) does NOT resolve
+  # for newly-created services — Cloud Run only mints the random-hash form now.
+  # Verified via `gcloud run services describe`.
+  VITE_PROXY_URL: https://opsagents-studio-console-proxy-zadkrinzra-zf.a.run.app
 
 jobs:
   build-deploy-app:
