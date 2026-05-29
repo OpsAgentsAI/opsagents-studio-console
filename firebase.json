@@ -22,6 +22,7 @@
     ]
   },
   "firestore": {
+    "database": "studio-console",
     "rules": "firestore/firestore.rules",
     "indexes": "firestore/firestore.indexes.json"
   }

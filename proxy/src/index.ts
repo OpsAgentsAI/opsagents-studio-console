@@ -7,6 +7,7 @@ import { getFirestore, FieldValue, type Transaction, type QueryDocumentSnapshot 
 import { randomUUID } from 'node:crypto';
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT ?? 'opsagent-prod';
+const FIRESTORE_DB = process.env.FIRESTORE_DB ?? 'studio-console';
 const BRIDGE_URL = process.env.BRIDGE_URL ?? 'https://opsagent-core-523955774086.me-west1.run.app/api/generate-image';
 const BRIDGE_API_KEY = process.env.BRIDGE_API_KEY ?? '';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,https://opsagents-studio-console.web.app,https://console.studio.opsagents.agency').split(',');
@@ -17,7 +18,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   initializeApp({ credential: applicationDefault(), projectId: PROJECT_ID });
 }
 const auth = getAuth();
-const db = getFirestore();
+const db = getFirestore(FIRESTORE_DB);
 
 type Role = 'admin' | 'user';
 interface Caller { uid: string; email: string; role: Role; }

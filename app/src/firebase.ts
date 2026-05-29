@@ -9,9 +9,11 @@ const config = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const FIRESTORE_DB = (import.meta.env.VITE_FIRESTORE_DB as string | undefined) ?? 'studio-console';
+
 export const app = initializeApp(config);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, FIRESTORE_DB);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 

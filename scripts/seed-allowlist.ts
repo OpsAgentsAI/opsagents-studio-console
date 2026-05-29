@@ -2,6 +2,7 @@ import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT ?? 'opsagent-prod';
+const FIRESTORE_DB = process.env.FIRESTORE_DB ?? 'studio-console';
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)), projectId: PROJECT_ID });
@@ -9,7 +10,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   initializeApp({ credential: applicationDefault(), projectId: PROJECT_ID });
 }
 
-const db = getFirestore();
+const db = getFirestore(FIRESTORE_DB);
 
 interface SeedEntry { email: string; role: 'admin' | 'user'; }
 const seed: SeedEntry[] = [
